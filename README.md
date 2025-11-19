@@ -18,6 +18,12 @@
 
 ## ✨ Features
 
+- **🔌 LiteLLM API Integration** - Connect to your company's LiteLLM API for exact usage data
+  - Real-time cost tracking from API (no calculations needed)
+  - Today's spend monitoring
+  - Budget reset date display
+  - Automatic fallback to local calculation if API is unavailable
+  - Clear data source indicator (API/Local)
 - **🎯 Accurate Cost Tracking** - Properly groups tool calls and calculates costs per conversation turn
 - **📊 Real-time Monitoring** - Current month cost visible in your menu bar
 - **🔄 Smart Updates** - Automatic silent updates every minute, manual refresh with visual feedback
@@ -34,8 +40,10 @@
 - **🌍 Multi-language** - Switch between English 🇺🇸 and Spanish 🇪🇸
 - **💱 Currency Conversion** - Automatically shows costs in EUR (€) when Spanish is selected, using daily exchange rates
 - **🖥️ Native macOS** - Built with SwiftUI, lightweight and fast
-- **🔒 Privacy-first** - All usage data stays local (only fetches exchange rate once per day)
+- **🔒 Privacy-first** - All usage data stays local (only fetches exchange rate once per day)*
 - **🎨 Polished UI** - Clean interface with smooth interactions and auto-close popover
+
+*When using API integration, today's spend and budget info are fetched from your LiteLLM server
 
 ---
 
@@ -81,10 +89,12 @@ See which projects cost the most:
 ```
 
 ### Settings Panel
-Configure pricing for different models and context windows:
-- Standard Context (≤ 200K tokens)
-- Long Context (> 200K tokens)
-- Customize rates for each token type
+Configure pricing and API integration:
+- **LiteLLM API Key** - Connect to your company's LiteLLM server for exact usage data
+- **Pricing Configuration**:
+  - Standard Context (≤ 200K tokens)
+  - Long Context (> 200K tokens)
+  - Customize rates for each token type (used for local calculation fallback)
 
 ---
 
@@ -215,13 +225,22 @@ Without proper turn grouping, tool-heavy conversations could be counted 2-3× hi
 
 ### Main Panel
 
+**Data Source Indicator:**
+- 🟢 **API Data** - Using LiteLLM API (exact costs from server)
+- 🟠 **Local Data** - Using local file calculation (fallback mode)
+
+**Today's Spend (API mode only):**
+- Shows your current day's usage
+- Displays budget reset date
+- Updates automatically with each refresh
+
 **Two tabs:**
 1. **By Month** 📅 - Monthly breakdown with detailed token metrics (paginated, 2 months per page)
-2. **By Project** 📁 - Project-based cost analysis
+2. **By Project** 📁 - Project-based cost analysis (always uses local data)
 
 **Controls:**
 - **📤 Export** - Export current view to CSV file
-- **⚙️ Settings** - Configure pricing for different models
+- **⚙️ Settings** - Configure API key and pricing
 - **🇺🇸 / 🇪🇸 Language Selector** - Switch between English and Spanish
 - **🔄 Refresh** - Manually update data (shows loading spinner)
 - **✖️ Close** - Exit the application
@@ -252,14 +271,26 @@ Export your data for analysis in Excel, Google Sheets, or other tools:
 
 ### Settings Panel
 
-Customize pricing to match your Claude API plan:
+**LiteLLM API Integration:**
 
 1. Click the **⚙️ gear icon** in the top-right
-2. Adjust pricing for:
+2. Enter your **LiteLLM API Key** (format: `sk-...`)
+3. Click **Save** - the app will automatically:
+   - Fetch exact usage data from your LiteLLM server
+   - Display today's spend and budget reset date
+   - Show 🟢 **API Data** indicator in the main panel
+4. Leave empty to use local file calculation (default behavior)
+
+**Pricing Configuration (Local Calculation Fallback):**
+
+1. Adjust pricing for:
    - Standard Context (≤ 200K tokens)
    - Long Context (> 200K tokens)
-3. Configure rates for each token type
-4. Click **Reset to Defaults** to restore Sonnet 4.5 pricing
+2. Configure rates for each token type
+3. Click **Reset to Defaults** to restore Sonnet 4.5 pricing
+4. These settings are used when:
+   - No API key is configured
+   - API is temporarily unavailable (automatic fallback)
 
 ### Automatic Updates
 - Updates every 60 seconds automatically (silently, no loading indicator)
@@ -274,10 +305,12 @@ Customize pricing to match your Claude API plan:
 ClaudeUsageTracker/
 ├── ClaudeUsageTrackerApp.swift    # App entry point & menu bar
 ├── ClaudeUsageManager.swift       # Data parsing, turn grouping & cost calculations
+├── LiteLLMManager.swift            # LiteLLM API integration
 ├── PricingManager.swift            # Configurable pricing tiers
+├── CurrencyManager.swift           # Currency conversion (USD/EUR)
 ├── LocalizationManager.swift       # Multi-language support (EN/ES)
 ├── MainView.swift                  # SwiftUI main interface
-├── SettingsView.swift              # Pricing configuration UI
+├── SettingsView.swift              # API key & pricing configuration UI
 ├── Assets.xcassets/                # App icons & resources
 ├── ClaudeUsageTracker.entitlements # macOS permissions
 ├── build.sh                        # Build script

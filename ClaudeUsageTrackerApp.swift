@@ -19,14 +19,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var localizationManager = LocalizationManager()
     var pricingManager = PricingManager()
     var currencyManager = CurrencyManager()
+    var liteLLMManager = LiteLLMManager()
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Vincular managers con el manager de datos
         manager.pricingManager = pricingManager
         manager.localizationManager = localizationManager
+        manager.liteLLMManager = liteLLMManager
 
         // Crear item en la barra de menú
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -120,6 +122,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .environmentObject(localizationManager)
                 .environmentObject(pricingManager)
                 .environmentObject(currencyManager)
+                .environmentObject(liteLLMManager)
         )
         self.popover = popover
 

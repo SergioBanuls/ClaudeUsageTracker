@@ -6,8 +6,16 @@ struct MainView: View {
     @EnvironmentObject var localizationManager: LocalizationManager
     @EnvironmentObject var pricingManager: PricingManager
     @EnvironmentObject var currencyManager: CurrencyManager
+    @EnvironmentObject var liteLLMManager: LiteLLMManager
     @State private var selectedTab = 0
     @State private var showSettings = false
+
+    func formatResetDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.locale = Locale(identifier: localizationManager.currentLanguage == .english ? "en_US" : "es_ES")
+        return formatter.string(from: date)
+    }
 
     func exportToCSV() {
         // Activate the app to bring the save panel to front
@@ -92,8 +100,22 @@ struct MainView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("💰 \(localizationManager.localized(.title))")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("💰 \(localizationManager.localized(.title))")
+                        .font(.headline)
+
+                    // Data source indicator
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(manager.dataSource == .api ? Color.green : Color.orange)
+                            .frame(width: 6, height: 6)
+                        Text(manager.dataSource == .api ?
+                             (localizationManager.currentLanguage == .english ? "API Data" : "Datos de API") :
+                             (localizationManager.currentLanguage == .english ? "Local Data" : "Datos Locales"))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
                 Spacer()
                 
                 // Export button
@@ -116,6 +138,7 @@ struct MainView: View {
                     SettingsView()
                         .environmentObject(pricingManager)
                         .environmentObject(localizationManager)
+                        .environmentObject(liteLLMManager)
                 }
 
                 // Language selector
@@ -163,7 +186,40 @@ struct MainView: View {
                 .buttonStyle(.plain)
             }
             .padding()
-            
+
+            // Today's spend and budget reset (only show if using API)
+            if manager.dataSource == .api {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(localizationManager.currentLanguage == .english ? "Today's Spend" : "Gasto de Hoy")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(currencyManager.formatAmount(liteLLMManager.todaySpend, language: localizationManager.currentLanguage))
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(localizationManager.currentLanguage == .english ? "Budget Reset" : "Reset de Presupuesto")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        if let resetDate = liteLLMManager.budgetResetDate {
+                            Text(formatResetDate(resetDate))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("—")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+
             // Tabs
             Picker("", selection: $selectedTab) {
                 Text(localizationManager.localized(.byMonth)).tag(0)
@@ -171,7 +227,7 @@ struct MainView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
-            
+
             Divider()
             
             // Content
@@ -387,56 +443,73 @@ struct ProjectView: View {
     @EnvironmentObject var manager: ClaudeUsageManager
     @EnvironmentObject var localizationManager: LocalizationManager
     @EnvironmentObject var currencyManager: CurrencyManager
-    
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(manager.projectData, id: \.project) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("📁 \(item.project)")
-                                .font(.headline)
-                                .lineLimit(2)
-                            Spacer()
-                            Text(currencyManager.formatAmount(item.cost, language: localizationManager.currentLanguage))
-                                .font(.headline)
-                                .foregroundColor(.green)
-                        }
-                        
-                        TokenRow(
-                            label: localizationManager.localized(.input),
-                            count: item.details.inputTokens,
-                            cost: Double(item.details.inputTokens) * 0.000003,
-                            color: .blue
-                        )
-                        
-                        TokenRow(
-                            label: localizationManager.localized(.cacheCreation),
-                            count: item.details.cacheCreationTokens,
-                            cost: Double(item.details.cacheCreationTokens) * 0.00000375,
-                            color: .orange
-                        )
-                        
-                        TokenRow(
-                            label: localizationManager.localized(.cacheRead),
-                            count: item.details.cacheReadTokens,
-                            cost: Double(item.details.cacheReadTokens) * 0.0000003,
-                            color: .purple
-                        )
-                        
-                        TokenRow(
-                            label: localizationManager.localized(.output),
-                            count: item.details.outputTokens,
-                            cost: Double(item.details.outputTokens) * 0.000015,
-                            color: .red
-                        )
-                    }
-                    .padding()
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(8)
-                }
+        VStack(spacing: 0) {
+            // Warning about local data - full width
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundColor(.blue)
+                Text(localizationManager.currentLanguage == .english ?
+                     "Project data is always calculated from local files" :
+                     "Los datos por proyecto siempre se calculan desde archivos locales")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
             }
             .padding()
+            .background(Color.blue.opacity(0.1))
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(manager.projectData, id: \.project) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("📁 \(item.project)")
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                Spacer()
+                                Text(currencyManager.formatAmount(item.cost, language: localizationManager.currentLanguage))
+                                    .font(.headline)
+                                    .foregroundColor(.green)
+                            }
+
+                            TokenRow(
+                                label: localizationManager.localized(.input),
+                                count: item.details.inputTokens,
+                                cost: Double(item.details.inputTokens) * 0.000003,
+                                color: .blue
+                            )
+
+                            TokenRow(
+                                label: localizationManager.localized(.cacheCreation),
+                                count: item.details.cacheCreationTokens,
+                                cost: Double(item.details.cacheCreationTokens) * 0.00000375,
+                                color: .orange
+                            )
+
+                            TokenRow(
+                                label: localizationManager.localized(.cacheRead),
+                                count: item.details.cacheReadTokens,
+                                cost: Double(item.details.cacheReadTokens) * 0.0000003,
+                                color: .purple
+                            )
+
+                            TokenRow(
+                                label: localizationManager.localized(.output),
+                                count: item.details.outputTokens,
+                                cost: Double(item.details.outputTokens) * 0.000015,
+                                color: .red
+                            )
+                        }
+                        .padding()
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+                .padding()
+            }
         }
     }
 }

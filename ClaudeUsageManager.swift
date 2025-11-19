@@ -7,11 +7,18 @@ class ClaudeUsageManager: ObservableObject {
     @Published var totalCost: Double = 0.0
     @Published var lastUpdate: Date = Date()
     @Published var isLoading: Bool = false
+    @Published var dataSource: DataSource = .local
+
+    enum DataSource {
+        case api
+        case local
+    }
 
     var onDataUpdated: (() -> Void)?
     var onLoadingStateChanged: ((Bool) -> Void)?
     var pricingManager: PricingManager?
     var localizationManager: LocalizationManager?
+    var liteLLMManager: LiteLLMManager?
     
     struct TokenBreakdown {
         var inputTokens: Int = 0
@@ -75,6 +82,56 @@ class ClaudeUsageManager: ObservableObject {
             }
         }
 
+        // Try API first if available
+        if let liteLLMManager = liteLLMManager, liteLLMManager.hasValidAPIKey() {
+            Task {
+                do {
+                    // Fetch all API data concurrently
+                    async let monthlyData = liteLLMManager.fetchUsageData()
+                    async let userInfoTask = liteLLMManager.fetchUserInfo()
+                    async let todaySpendTask = liteLLMManager.fetchTodaySpend()
+
+                    let apiMonthlyData = try await monthlyData
+                    try await userInfoTask
+                    try await todaySpendTask
+
+                    // Update UI with API data
+                    await MainActor.run {
+                        self.monthlyData = apiMonthlyData
+                        self.dataSource = .api
+
+                        // Calculate current month cost
+                        let currentMonth = self.getCurrentMonthKey()
+                        self.currentMonthCost = self.monthlyData.first(where: { $0.month == currentMonth })?.cost ?? 0.0
+
+                        // Calculate total
+                        self.totalCost = self.monthlyData.reduce(0) { $0 + $1.cost }
+
+                        // Project data still comes from local files (API doesn't provide per-project breakdown)
+                        self.loadLocalProjectData()
+
+                        self.lastUpdate = Date()
+
+                        if showLoading {
+                            self.isLoading = false
+                        }
+
+                        self.onDataUpdated?()
+                    }
+                } catch {
+                    // API failed, fallback to local calculation
+                    print("API failed: \(error.localizedDescription). Falling back to local calculation.")
+                    self.loadLocalData(showLoading: showLoading)
+                }
+            }
+            return
+        }
+
+        // No API key or not valid, use local calculation
+        loadLocalData(showLoading: showLoading)
+    }
+
+    private func loadLocalData(showLoading: Bool) {
         // Procesar datos en background
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -221,7 +278,8 @@ class ClaudeUsageManager: ObservableObject {
 
             // Calculate total
             self.totalCost = self.monthlyData.reduce(0) { $0 + $1.cost }
-            
+
+            self.dataSource = .local
             self.lastUpdate = Date()
 
             // Finalizar carga solo si se estaba mostrando
@@ -232,6 +290,128 @@ class ClaudeUsageManager: ObservableObject {
             // Notificar que los datos se actualizaron
             self.onDataUpdated?()
         }
+        }
+    }
+
+    private func loadLocalProjectData() {
+        // Load project data from local files (always local, API doesn't provide this)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            let claudeProjectsPath = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".claude/projects")
+
+            var projectDict: [String: TokenBreakdown] = [:]
+
+            guard let projects = try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsPath.path) else {
+                return
+            }
+
+            for project in projects {
+                let projectPath = claudeProjectsPath.appendingPathComponent(project)
+                guard let files = try? FileManager.default.contentsOfDirectory(atPath: projectPath.path) else {
+                    continue
+                }
+
+                var projectBreakdown = TokenBreakdown()
+
+                for file in files where file.hasSuffix(".jsonl") {
+                    let filePath = projectPath.appendingPathComponent(file)
+                    guard let content = try? String(contentsOf: filePath) else { continue }
+
+                    let lines = content.components(separatedBy: .newlines)
+
+                    var currentTurnMessages: [(timestamp: String?, monthKey: String?, input: Int, cacheCreation: Int, cacheRead: Int, output: Int, contextSize: Int)] = []
+                    var lastTimestamp: Date?
+                    var dummyMonthlyDict: [String: TokenBreakdown] = [:] // Not used but needed for processTurn
+
+                    for line in lines where !line.isEmpty {
+                        guard let data = line.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let message = json["message"] as? [String: Any] else {
+                            continue
+                        }
+
+                        let role = message["role"] as? String
+                        let usage = message["usage"] as? [String: Any]
+
+                        guard let usage = usage else {
+                            if !currentTurnMessages.isEmpty {
+                                self.processTurn(currentTurnMessages, monthlyDict: &dummyMonthlyDict, projectBreakdown: &projectBreakdown)
+                                currentTurnMessages.removeAll()
+                            }
+                            lastTimestamp = nil
+                            continue
+                        }
+
+                        let input = usage["input_tokens"] as? Int ?? 0
+                        let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
+                        let output = usage["output_tokens"] as? Int ?? 0
+
+                        var cacheCreation = usage["cache_creation_input_tokens"] as? Int ?? 0
+                        if cacheCreation == 0, let cacheCreationDict = usage["cache_creation"] as? [String: Any] {
+                            cacheCreation = cacheCreationDict["ephemeral_5m_input_tokens"] as? Int ?? 0
+                            cacheCreation += cacheCreationDict["ephemeral_1h_input_tokens"] as? Int ?? 0
+                        }
+
+                        let contextSize = input + cacheCreation + cacheRead
+                        let timestamp = json["timestamp"] as? String
+                        let monthKey = timestamp.map { String($0.prefix(7)) }
+
+                        var isNewTurn = false
+                        if let timestamp = timestamp {
+                            let formatter = ISO8601DateFormatter()
+                            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+                            if let currentDate = formatter.date(from: timestamp) {
+                                if let lastDate = lastTimestamp {
+                                    let timeDiff = currentDate.timeIntervalSince(lastDate)
+                                    if timeDiff > 10 || role != "assistant" {
+                                        isNewTurn = true
+                                    }
+                                }
+                                lastTimestamp = currentDate
+                            } else {
+                                isNewTurn = true
+                            }
+                        } else {
+                            isNewTurn = true
+                        }
+
+                        if isNewTurn && !currentTurnMessages.isEmpty {
+                            self.processTurn(currentTurnMessages, monthlyDict: &dummyMonthlyDict, projectBreakdown: &projectBreakdown)
+                            currentTurnMessages.removeAll()
+                        }
+
+                        currentTurnMessages.append((
+                            timestamp: timestamp,
+                            monthKey: monthKey,
+                            input: input,
+                            cacheCreation: cacheCreation,
+                            cacheRead: cacheRead,
+                            output: output,
+                            contextSize: contextSize
+                        ))
+                    }
+
+                    if !currentTurnMessages.isEmpty {
+                        self.processTurn(currentTurnMessages, monthlyDict: &dummyMonthlyDict, projectBreakdown: &projectBreakdown)
+                    }
+                }
+
+                if projectBreakdown.inputTokens > 0 || projectBreakdown.cacheCreationTokens > 0 ||
+                   projectBreakdown.cacheReadTokens > 0 || projectBreakdown.outputTokens > 0 {
+                    projectDict[project] = projectBreakdown
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.projectData = projectDict.map { (project, breakdown) in
+                    let cost = self.calculateCost(breakdown)
+                    let simplifiedName = self.simplifyProjectName(project)
+                    return (project: simplifiedName, cost: cost, details: breakdown)
+                }.sorted { $0.cost > $1.cost }
+            }
         }
     }
     

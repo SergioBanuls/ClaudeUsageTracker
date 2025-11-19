@@ -3,13 +3,15 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var pricingManager: PricingManager
     @EnvironmentObject var localizationManager: LocalizationManager
+    @EnvironmentObject var liteLLMManager: LiteLLMManager
     @Environment(\.dismiss) var dismiss
-    
+
+    @State private var apiKey: String = ""
     @State private var standardInput: String
     @State private var standardOutput: String
     @State private var standardCacheCreation: String
     @State private var standardCacheRead: String
-    
+
     @State private var longInput: String
     @State private var longOutput: String
     @State private var longCacheCreation: String
@@ -47,12 +49,50 @@ struct SettingsView: View {
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    // API Configuration Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(isEnglish ? "🔑 API Configuration" : "🔑 Configuración de API")
+                            .font(.subheadline)
+                            .bold()
+
+                        Text(isEnglish ? "Enter your LiteLLM API key to get exact usage data from the server. Leave empty to use local file calculation." : "Introduce tu API key de LiteLLM para obtener datos exactos del servidor. Déjalo vacío para usar el cálculo local.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(isEnglish ? "LiteLLM API Key" : "API Key de LiteLLM")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            SecureField(isEnglish ? "sk-..." : "sk-...", text: $apiKey)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+                        }
+
+                        if !apiKey.isEmpty && !apiKey.hasPrefix("sk-") {
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                    .font(.caption)
+                                Text(isEnglish ? "API keys typically start with 'sk-'" : "Las API keys suelen empezar con 'sk-'")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
+
+                    Divider()
+
                     // Model info
                     VStack(alignment: .leading, spacing: 4) {
                         Text(isEnglish ? "Model: Claude Sonnet 4.5" : "Modelo: Claude Sonnet 4.5")
                             .font(.subheadline)
                             .bold()
-                        Text(isEnglish ? "Prices per million tokens" : "Precios por millón de tokens")
+                        Text(isEnglish ? "Prices per million tokens (for local calculation fallback)" : "Precios por millón de tokens (para cálculo local de respaldo)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -136,6 +176,7 @@ struct SettingsView: View {
         .frame(width: 450, height: 600)
         .onAppear {
             loadCurrentValues()
+            apiKey = liteLLMManager.apiKey
         }
     }
     
@@ -156,16 +197,20 @@ struct SettingsView: View {
     }
     
     private func saveSettings() {
+        // Save API key
+        liteLLMManager.apiKey = apiKey
+
+        // Save pricing
         pricingManager.standardContext.inputTokens = Double(standardInput) ?? 3.00
         pricingManager.standardContext.outputTokens = Double(standardOutput) ?? 15.00
         pricingManager.standardContext.cacheCreation = Double(standardCacheCreation) ?? 3.75
         pricingManager.standardContext.cacheRead = Double(standardCacheRead) ?? 0.30
-        
+
         pricingManager.longContext.inputTokens = Double(longInput) ?? 6.00
         pricingManager.longContext.outputTokens = Double(longOutput) ?? 22.50
         pricingManager.longContext.cacheCreation = Double(longCacheCreation) ?? 7.50
         pricingManager.longContext.cacheRead = Double(longCacheRead) ?? 0.60
-        
+
         pricingManager.save()
         dismiss()
     }
