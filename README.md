@@ -8,7 +8,7 @@ We have relocated this repository to a new location for better maintenance and o
 
 All code, history, and related issues for this project can now be found in the following repository:
 
-**[https://github.com/masmovil/ClaudeUsageTracker](https://github.com/masmovil/ClaudeUsageTracker)**
+**[https://github.com/masmovil/ClaudeUsageTracker](https://github.com/masorange/ClaudeUsageTracker)**
 
 ---
 
@@ -19,7 +19,7 @@ All code, history, and related issues for this project can now be found in the f
 
 <br>
 
-[![Repository Moved](https://img.shields.io/badge/MOVED_TO-masmovil/ClaudeUsageTracker-blue?style=for-the-badge&logo=github)](https://github.com/masmovil/ClaudeUsageTracker)
+[![Repository Moved](https://img.shields.io/badge/MOVED_TO-masmovil/ClaudeUsageTracker-blue?style=for-the-badge&logo=github)](https://github.com/masorange/ClaudeUsageTracker)
 
 ---
 
